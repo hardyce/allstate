@@ -13,6 +13,8 @@ from pandas.stats.api import ols
 from sklearn.decomposition import PCA
 from sklearn import datasets, linear_model
 from sklearn.preprocessing import MinMaxScaler
+from scipy.sparse import csr_matrix, hstack
+import xgboost
 
 class allstatemodel(basemodel):
     
@@ -37,33 +39,56 @@ class allstatemodel(basemodel):
 
         res=pd.concat([dat.select_dtypes(exclude=['object']), dums], axis=1)
         return res
+        
+        
 model=allstatemodel()       
-data=model.loadtrain()
+train=model.loadtrain()
 test=model.loadtest()
-encoded = pd.get_dummies(pd.concat([data.drop('loss',axis=1).select_dtypes(include=['object']),test.select_dtypes(include=['object'])], axis=0))
-train_rows = data.shape[0]
-train_encoded = encoded.iloc[:train_rows, :]
-test_encoded = encoded.iloc[train_rows:, :] 
+
+y=train['loss'].values
+id_train=train['id'].values
+id_test=test['id'].values
+
+ntrain=train.shape[0]
+traintest=pd.concat((train,test),axis=0)
+
+sparse_data=[]
+f_cat=[f for f in traintest.columns if 'cat' in f]
+for f in f_cat:
+    dummy = pd.get_dummies(traintest[f].astype('category'))
+    tmp=csr_matrix(dummy)
+    sparse_data.append(tmp)
     
+f_num=[f for f in traintest.columns if 'cont' in f]
 
-
-
-y=data['loss']
-x=pd.concat([train_encoded,data.select_dtypes(exclude=['object']).astype('float32')],axis=1)
-
-train_encoded.join(data.select_dtypes(exclude=['object']))
-pca = PCA(n_components=200)
 scaler = MinMaxScaler()
-df_scaled = pd.DataFrame(scaler.fit_transform(x), columns=x.columns) 
-pca.fit(df_scaled)
-xpc=pca.transform(df_scaled)
-regr = linear_model.LinearRegression()
-regr.fit(xpc,y )
+tmp=csr_matrix(scaler.fit_transform(traintest[f_num]))
+sparse_data.append(tmp)
 
 
+
+xtraintest=hstack(sparse_data,format='csr')
+xtrain=xtraintest[:ntrain,:]
+xtest=xtraintest[ntrain:,:]
+
+
+pca = PCA(n_components=500)
+xgb = xgboost.XGBClassifier()
+pca.fit(xtrain.toarray())
+xpc=pca.transform(xtrain.toarray())
+
+xgb.fit(xtrain,y)
+#regr = linear_model.LinearRegression()
+#regr.fit(xpc,y )
+
+print('Variance explained ratio: %.2f' %sum(pca.explained_variance_ratio_))
 print('Variance score: %.2f' % regr.score(xpc, y))
 
-test=model.loadtest()
-ts=createDummies(test)
-test_scaled = pd.DataFrame(scaler.fit_transform(ts), columns=ts.columns)
-pred=regr.predict(pca.transform(test_encoded))
+#pred=regr.predict(pca.transform(xtest.toarray()))
+pred=xgb.predict(pca.transform(xtest.toarray()))
+
+
+submission=pd.DataFrame(np.array([id_test,pred]).T)
+submission.columns=['id','loss']
+submission.id=submission.id.astype('int')
+submission.to_csv('submis.csv',sep=',',header=True,index=False)

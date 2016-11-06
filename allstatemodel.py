@@ -19,7 +19,8 @@ from sklearn.ensemble import RandomForestRegressor
 import statsmodels.api as sm
 from sklearn.cross_validation import ShuffleSplit
 from sklearn.cross_validation import cross_val_score
-
+from sklearn.preprocessing import OneHotEncoder
+from scipy import stats
 #import seaborn as sns
 
 class allstatemodel(basemodel):
@@ -49,14 +50,23 @@ class allstatemodel(basemodel):
         res=pd.concat([dat.select_dtypes(exclude=['object']), dums], axis=1)
         return res
         
+    def plotCat(cat):
+        for v in np.unique(train[cat]):
+            plt.hist(train[train[cat]==v]['loss'],bins=100)
+            plt.show()
+
         
 model=allstatemodel()       
 train=model.loadtrain()
 test=model.loadtest()
 train=model.subset(train,len(train)/10)
 y=np.log(train['loss'].values)
+
 id_train=train['id'].values
 id_test=test['id'].values
+
+
+
 
 ntrain=train.shape[0]
 traintest=pd.concat((train,test),axis=0)
